@@ -3,166 +3,211 @@
  * Plugin Name: Photo Album Embed
  * Description: Fetch and embed photo albums from services like Google Photos.
  * Author: Strong Anchor Tech
- * Version: 1.0
+ * Version: 1.0.1
  */
 
-if (!defined('ABSPATH')) {
-    exit; // Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
 }
 
 class PhotoAlbumEmbed {
-    private $redirect_uri;
+	private $redirect_uri;
 
-    public function __construct() {
-        $this->redirect_uri = admin_url('admin.php?page=photo-album-auth');
-        add_action('admin_menu', [$this, 'register_menu']);
-        add_action('admin_init', [$this, 'register_settings']);
-        add_shortcode('photo_album', [$this, 'render_album_shortcode']);
-        add_action('admin_post_photo_album_auth', [$this, 'handle_auth_callback']);
-    }
+	public function __construct() {
+		$this->redirect_uri = admin_url( 'admin-post.php?action=photo_album_auth' );
+		add_action( 'admin_menu', array( $this, 'register_menu' ) );
+		add_action( 'admin_init', array( $this, 'register_settings' ) );
+		add_shortcode( 'photo_album', array( $this, 'render_album_shortcode' ) );
+		add_action( 'admin_post_photo_album_auth', array( $this, 'handle_auth_callback' ) );
+	}
 
-    public function register_menu() {
-        add_menu_page(
-            'Photo Album Embed',
-            'Photo Album Embed',
-            'manage_options',
-            'photo-album-auth',
-            [$this, 'auth_page'],
-            'dashicons-images-alt2'
-        );
+	public function register_menu() {
+		add_menu_page(
+			'Photo Album Embed',
+			'Photo Album Embed',
+			'manage_options',
+			'photo-album-auth',
+			array( $this, 'auth_page' ),
+			'dashicons-images-alt2'
+		);
 
-        add_submenu_page(
-            'photo-album-auth',
-            'Photo Album Settings',
-            'Settings',
-            'manage_options',
-            'photo-album-settings',
-            [$this, 'settings_page']
-        );
-    }
+		add_submenu_page(
+			'photo-album-auth',
+			'Photo Album Settings',
+			'Settings',
+			'manage_options',
+			'photo-album-settings',
+			array( $this, 'settings_page' )
+		);
+	}
 
-    public function register_settings() {
-        register_setting('photo_album_settings', 'photo_album_client_id');
-        register_setting('photo_album_settings', 'photo_album_client_secret');
-    }
+	public function register_settings() {
+		register_setting( 'photo_album_settings', 'photo_album_client_id', 'sanitize_text_field' );
+		register_setting( 'photo_album_settings', 'photo_album_client_secret', 'sanitize_text_field' );
+	}
 
-    public function settings_page() {
-        ?>
-        <div class="wrap">
-            <h1>Photo Album Settings</h1>
-            <form method="post" action="options.php">
-                <?php
-                settings_fields('photo_album_settings');
-                do_settings_sections('photo_album_settings');
-                ?>
-                <table class="form-table">
-                    <tr valign="top">
-                        <th scope="row">Client ID</th>
-                        <td>
-                            <input type="text" name="photo_album_client_id" value="<?php echo esc_attr(get_option('photo_album_client_id')); ?>" class="regular-text">
-                        </td>
-                    </tr>
-                    <tr valign="top">
-                        <th scope="row">Client Secret</th>
-                        <td>
-                            <input type="text" name="photo_album_client_secret" value="<?php echo esc_attr(get_option('photo_album_client_secret')); ?>" class="regular-text">
-                        </td>
-                    </tr>
-                </table>
-                <?php submit_button(); ?>
-            </form>
-        </div>
-        <?php
-    }
+	public function settings_page() {
+		?>
+		<div class="wrap">
+			<h1><?php esc_html_e( 'Photo Album Settings', 'photo-album-embed' ); ?></h1>
+			<form method="post" action="options.php">
+				<?php
+				settings_fields( 'photo_album_settings' );
+				do_settings_sections( 'photo_album_settings' );
+				?>
+				<table class="form-table">
+					<tr valign="top">
+						<th scope="row"><?php esc_html_e( 'Client ID', 'photo-album-embed' ); ?></th>
+						<td>
+							<input type="text" name="photo_album_client_id" value="<?php echo esc_attr( $this->get_client_id() ); ?>" class="regular-text">
+						</td>
+					</tr>
+					<tr valign="top">
+						<th scope="row"><?php esc_html_e( 'Client Secret', 'photo-album-embed' ); ?></th>
+						<td>
+							<input type="password" name="photo_album_client_secret" value="<?php echo esc_attr( $this->get_client_secret() ); ?>" class="regular-text" autocomplete="off">
+						</td>
+					</tr>
+				</table>
+				<?php submit_button(); ?>
+			</form>
+		</div>
+		<?php
+	}
 
-    public function auth_page() {
-        $auth_url = $this->get_auth_url();
-        echo '<div class="wrap">';
-        echo '<h1>Connect to Photo Album Service</h1>';
-        if (!$this->get_client_id() || !$this->get_client_secret()) {
-            echo '<p>Please configure your Client ID and Secret in the <a href="' . admin_url('admin.php?page=photo-album-settings') . '">Settings</a> page.</p>';
-        } else {
-            echo '<a href="' . esc_url($auth_url) . '" class="button-primary">Authorize</a>';
-        }
-        echo '</div>';
-    }
+	public function auth_page() {
+		echo '<div class="wrap">';
+		echo '<h1>' . esc_html__( 'Connect to Photo Album Service', 'photo-album-embed' ) . '</h1>';
 
-    public function get_client_id() {
-        return get_option('photo_album_client_id');
-    }
+		if ( ! $this->get_client_id() || ! $this->get_client_secret() ) {
+			echo '<p>' . wp_kses_post(
+				sprintf(
+					/* translators: %s: settings page URL */
+					__( 'Please configure your Client ID and Secret in the <a href="%s">Settings</a> page.', 'photo-album-embed' ),
+					esc_url( admin_url( 'admin.php?page=photo-album-settings' ) )
+				)
+			) . '</p>';
+		} else {
+			echo '<a href="' . esc_url( $this->get_auth_url() ) . '" class="button-primary">' . esc_html__( 'Authorize', 'photo-album-embed' ) . '</a>';
+		}
 
-    public function get_client_secret() {
-        return get_option('photo_album_client_secret');
-    }
+		echo '</div>';
+	}
 
-    public function get_auth_url() {
-        $scopes = urlencode('https://www.googleapis.com/auth/photoslibrary.readonly');
-        return "https://accounts.google.com/o/oauth2/auth?response_type=code&client_id={$this->get_client_id()}&redirect_uri={$this->redirect_uri}&scope={$scopes}&access_type=offline";
-    }
+	public function get_client_id() {
+		return sanitize_text_field( get_option( 'photo_album_client_id', '' ) );
+	}
 
-    public function handle_auth_callback() {
-        if (!isset($_GET['code'])) {
-            wp_die('Authorization failed.');
-        }
+	public function get_client_secret() {
+		return sanitize_text_field( get_option( 'photo_album_client_secret', '' ) );
+	}
 
-        $code = sanitize_text_field($_GET['code']);
-        $token_url = 'https://oauth2.googleapis.com/token';
-        $response = wp_remote_post($token_url, [
-            'body' => [
-                'code' => $code,
-                'client_id' => $this->get_client_id(),
-                'client_secret' => $this->get_client_secret(),
-                'redirect_uri' => $this->redirect_uri,
-                'grant_type' => 'authorization_code',
-            ],
-        ]);
+	public function get_auth_url() {
+		return add_query_arg(
+			array(
+				'response_type' => 'code',
+				'client_id'     => $this->get_client_id(),
+				'redirect_uri'  => $this->redirect_uri,
+				'scope'         => 'https://www.googleapis.com/auth/photoslibrary.readonly',
+				'access_type'   => 'offline',
+				'prompt'        => 'consent',
+				'state'         => wp_create_nonce( 'photo_album_auth_' . get_current_user_id() ),
+			),
+			'https://accounts.google.com/o/oauth2/auth'
+		);
+	}
 
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
+	public function handle_auth_callback() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You are not allowed to connect this photo album service.', 'photo-album-embed' ), '', array( 'response' => 403 ) );
+		}
 
-        if (isset($data['access_token'])) {
-            update_option('photo_album_access_token', $data['access_token']);
-            update_option('photo_album_refresh_token', $data['refresh_token']);
-            wp_redirect(admin_url('admin.php?page=photo-album-auth'));
-            exit;
-        }
+		$state = isset( $_GET['state'] ) ? sanitize_text_field( wp_unslash( $_GET['state'] ) ) : '';
+		if ( ! wp_verify_nonce( $state, 'photo_album_auth_' . get_current_user_id() ) ) {
+			wp_die( esc_html__( 'Authorization state check failed.', 'photo-album-embed' ), '', array( 'response' => 403 ) );
+		}
 
-        wp_die('Authorization failed.');
-    }
+		if ( ! isset( $_GET['code'] ) ) {
+			wp_die( esc_html__( 'Authorization failed.', 'photo-album-embed' ) );
+		}
 
-    public function render_album_shortcode($atts) {
-        $atts = shortcode_atts(['album_id' => ''], $atts);
-        $album_id = sanitize_text_field($atts['album_id']);
-        $access_token = get_option('photo_album_access_token');
+		$code     = sanitize_text_field( wp_unslash( $_GET['code'] ) );
+		$response = wp_remote_post(
+			'https://oauth2.googleapis.com/token',
+			array(
+				'timeout' => 15,
+				'body'    => array(
+					'code'          => $code,
+					'client_id'     => $this->get_client_id(),
+					'client_secret' => $this->get_client_secret(),
+					'redirect_uri'  => $this->redirect_uri,
+					'grant_type'    => 'authorization_code',
+				),
+			)
+		);
 
-        if (!$album_id || !$access_token) {
-            return 'Invalid album ID or authorization is missing.';
-        }
+		if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+			wp_die( esc_html__( 'Authorization token exchange failed.', 'photo-album-embed' ) );
+		}
 
-        $url = "https://photoslibrary.googleapis.com/v1/mediaItems:search";
-        $response = wp_remote_post($url, [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $access_token,
-                'Content-Type' => 'application/json',
-            ],
-            'body' => json_encode(['albumId' => $album_id]),
-        ]);
+		$data = json_decode( wp_remote_retrieve_body( $response ), true );
 
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
+		if ( ! empty( $data['access_token'] ) ) {
+			update_option( 'photo_album_access_token', sanitize_text_field( $data['access_token'] ) );
+			if ( ! empty( $data['refresh_token'] ) ) {
+				update_option( 'photo_album_refresh_token', sanitize_text_field( $data['refresh_token'] ) );
+			}
+			wp_safe_redirect( admin_url( 'admin.php?page=photo-album-auth' ) );
+			exit;
+		}
 
-        if (!isset($data['mediaItems'])) {
-            return 'Unable to fetch photos.';
-        }
+		wp_die( esc_html__( 'Authorization failed.', 'photo-album-embed' ) );
+	}
 
-        $html = '<div class="photo-album-gallery">';
-        foreach ($data['mediaItems'] as $item) {
-            $html .= '<img src="' . esc_url($item['baseUrl']) . '" alt="' . esc_attr($item['description']) . '">';
-        }
-        $html .= '</div>';
+	public function render_album_shortcode( $atts ) {
+		$atts         = shortcode_atts( array( 'album_id' => '' ), $atts, 'photo_album' );
+		$album_id     = sanitize_text_field( $atts['album_id'] );
+		$access_token = sanitize_text_field( get_option( 'photo_album_access_token', '' ) );
 
-        return $html;
-    }
+		if ( ! $album_id || ! $access_token ) {
+			return esc_html__( 'Invalid album ID or authorization is missing.', 'photo-album-embed' );
+		}
+
+		$response = wp_remote_post(
+			'https://photoslibrary.googleapis.com/v1/mediaItems:search',
+			array(
+				'timeout' => 15,
+				'headers' => array(
+					'Authorization' => 'Bearer ' . $access_token,
+					'Content-Type'  => 'application/json',
+				),
+				'body'    => wp_json_encode( array( 'albumId' => $album_id ) ),
+			)
+		);
+
+		if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+			return esc_html__( 'Unable to fetch photos.', 'photo-album-embed' );
+		}
+
+		$data = json_decode( wp_remote_retrieve_body( $response ), true );
+
+		if ( empty( $data['mediaItems'] ) || ! is_array( $data['mediaItems'] ) ) {
+			return esc_html__( 'Unable to fetch photos.', 'photo-album-embed' );
+		}
+
+		$html = '<div class="photo-album-gallery">';
+		foreach ( $data['mediaItems'] as $item ) {
+			$image_url   = isset( $item['baseUrl'] ) ? esc_url( $item['baseUrl'] ) : '';
+			$description = isset( $item['description'] ) ? $item['description'] : '';
+			if ( '' === $image_url ) {
+				continue;
+			}
+			$html .= '<img src="' . $image_url . '" alt="' . esc_attr( $description ) . '">';
+		}
+		$html .= '</div>';
+
+		return $html;
+	}
 }
 
 new PhotoAlbumEmbed();
