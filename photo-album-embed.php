@@ -3,7 +3,7 @@
  * Plugin Name: Photo Album Embed
  * Description: Fetch and embed photo albums from services like Google Photos.
  * Author: Strong Anchor Tech
- * Version: 1.0.1
+ * Version: 1.0.2
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -173,6 +173,12 @@ class PhotoAlbumEmbed {
 			return esc_html__( 'Invalid album ID or authorization is missing.', 'photo-album-embed' );
 		}
 
+		$cache_key = 'photo_album_embed_' . md5( $album_id . '|' . md5( $access_token ) );
+		$cached    = get_transient( $cache_key );
+		if ( is_string( $cached ) && '' !== $cached ) {
+			return $cached;
+		}
+
 		$response = wp_remote_post(
 			'https://photoslibrary.googleapis.com/v1/mediaItems:search',
 			array(
@@ -186,13 +192,17 @@ class PhotoAlbumEmbed {
 		);
 
 		if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
-			return esc_html__( 'Unable to fetch photos.', 'photo-album-embed' );
+			$message = esc_html__( 'Unable to fetch photos.', 'photo-album-embed' );
+			set_transient( $cache_key, $message, 2 * MINUTE_IN_SECONDS );
+			return $message;
 		}
 
 		$data = json_decode( wp_remote_retrieve_body( $response ), true );
 
 		if ( empty( $data['mediaItems'] ) || ! is_array( $data['mediaItems'] ) ) {
-			return esc_html__( 'Unable to fetch photos.', 'photo-album-embed' );
+			$message = esc_html__( 'Unable to fetch photos.', 'photo-album-embed' );
+			set_transient( $cache_key, $message, 2 * MINUTE_IN_SECONDS );
+			return $message;
 		}
 
 		$html = '<div class="photo-album-gallery">';
@@ -205,6 +215,8 @@ class PhotoAlbumEmbed {
 			$html .= '<img src="' . $image_url . '" alt="' . esc_attr( $description ) . '">';
 		}
 		$html .= '</div>';
+
+		set_transient( $cache_key, $html, 10 * MINUTE_IN_SECONDS );
 
 		return $html;
 	}
